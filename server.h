@@ -11,7 +11,6 @@ class Server : public QObject
     Q_OBJECT
 public:
     explicit Server(QObject *parent = 0);
-    void startStresstest();
     void sendFileToClient(QUrl file);
 
 signals:

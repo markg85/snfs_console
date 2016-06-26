@@ -26,23 +26,6 @@ Server::Server(QObject *parent)
     }
 }
 
-void Server::startStresstest()
-{
-    QByteArray buffer = QByteArray().fill('X', 4096);
-    qDebug() << "Buffer size: " << buffer.size();
-
-    // 4096 * 262144 = 1,073,741,824 == ~1GB!
-    int numOfBuffersToSend = 262144;
-
-    for (int i = 0; i < numOfBuffersToSend; i++)
-    {
-        m_clientConnection->write(buffer);
-    }
-
-    // Just disconnect the client. The client interprets this as "done sending file"
-    m_clientConnection->disconnectFromHost();
-}
-
 void Server::sendFileToClient(QUrl file)
 {
     qDebug() << QString("Going to send the file: %1 to the client").arg(file.toString());
@@ -90,9 +73,6 @@ void Server::slotNewConnection()
     {
         m_clientConnection = clientConnection;
         qDebug() << QString("New client connection from %1 on port: %2").arg(m_clientConnection->peerAddress().toString()).arg(m_clientConnection->peerPort());
-
-        //m_clientConnection->write("Hello dear snfs begin.. Lets make a great Net work File System! :)");
-        //startStresstest();
 
         connect(m_clientConnection, &QTcpSocket::disconnected, [&]()
         {
