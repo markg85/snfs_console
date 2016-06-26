@@ -58,7 +58,7 @@ void Server::sendFileToClient(QUrl file)
     QFile fileRequest(fileAsString);
     fileRequest.open(QIODevice::ReadOnly);
     const int chunkSize = 4096;
-    int remainingSize = fileRequest.size();
+    qint64 remainingSize = fileRequest.size();
 
     QByteArray buffer;
     buffer.resize(chunkSize);
