@@ -5,6 +5,7 @@
 
 class QTcpServer;
 class QTcpSocket;
+class QFile;
 
 class Server : public QObject
 {
@@ -21,6 +22,8 @@ public slots:
 private:
     QTcpServer *m_tcpServer;
     QTcpSocket *m_clientConnection; // Just a 1-1 connection for the moment..
+    QFile *m_file;
+    qint64 m_remainingBytes;
 };
 
 #endif // SERVER_H

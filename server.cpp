@@ -5,10 +5,17 @@
 #include <QDebug>
 #include <QUrl>
 #include <QFile>
+#include <QtGlobal>
+
+#define CHUNKSIZE 4096 // 4 KiB
+#define LOW_BYTES_THRESHOLD 1024 * 64 // 64 KiB
+#define HIGH_BYTES_THRESHOLD 1024 * 512 // 512 KiB
 
 Server::Server(QObject *parent)
     : QObject(parent)
     , m_tcpServer(new QTcpServer(this))
+    , m_file(nullptr)
+    , m_remainingBytes(0)
 {
     // Connect to signals from the server.
     connect(m_tcpServer, &QTcpServer::newConnection, this, &Server::slotNewConnection);
@@ -38,27 +45,25 @@ void Server::sendFileToClient(QUrl file)
         return;
     }
 
-    QFile fileRequest(fileAsString);
-    fileRequest.open(QIODevice::ReadOnly);
-    const int chunkSize = 4096;
-    qint64 remainingSize = fileRequest.size();
+    m_file = new QFile(fileAsString, this);
+    m_file->open(QIODevice::ReadOnly);
+    m_remainingBytes = m_file->size();
 
     QByteArray buffer;
-    buffer.resize(chunkSize);
 
-    while (remainingSize > 0)
+    // WHY isn't this working: "QByteArray buffer(std::min(CHUNKSIZE, m_remainingBytes))"... weird.
+
+    if (m_remainingBytes < CHUNKSIZE)
     {
-        if (remainingSize < chunkSize)
-        {
-            buffer.resize(remainingSize);
-        }
-
-        remainingSize -= fileRequest.read(buffer.data(), buffer.size());
-        m_clientConnection->write(buffer);
+        buffer.resize(m_remainingBytes);
+    }
+    else
+    {
+        buffer.resize(CHUNKSIZE);
     }
 
-    qDebug() << "Done sending file. Closing connection.";
-    m_clientConnection->disconnectFromHost();
+    m_remainingBytes -= m_file->read(buffer.data(), buffer.size());
+    m_clientConnection->write(buffer);
 }
 
 void Server::slotNewConnection()
@@ -87,6 +92,35 @@ void Server::slotNewConnection()
             qDebug() << QString("Received request to send the following file to the client: %1").arg(fileRequest);
 
             sendFileToClient(fileRequest);
+        });
+
+        connect(m_clientConnection, &QTcpSocket::bytesWritten, [&]()
+        {
+            if (m_clientConnection->bytesToWrite() <= LOW_BYTES_THRESHOLD)
+            {
+                while (m_remainingBytes > 0 && m_clientConnection->bytesToWrite() <= HIGH_BYTES_THRESHOLD)
+                {
+                    QByteArray buffer;
+
+                    if (m_remainingBytes < CHUNKSIZE)
+                    {
+                        buffer.resize(m_remainingBytes);
+                    }
+                    else
+                    {
+                        buffer.resize(CHUNKSIZE);
+                    }
+
+                    m_remainingBytes -= m_file->read(buffer.data(), buffer.size());
+                    m_clientConnection->write(buffer);
+                }
+            }
+
+            if (m_remainingBytes <= 0)
+            {
+                    qDebug() << "Done sending file. Closing connection.";
+                    m_clientConnection->disconnectFromHost();
+            }
         });
     }
 }
