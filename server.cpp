@@ -49,18 +49,7 @@ void Server::sendFileToClient(QUrl file)
     m_file->open(QIODevice::ReadOnly);
     m_remainingBytes = m_file->size();
 
-    QByteArray buffer;
-
-    // WHY isn't this working: "QByteArray buffer(std::min(CHUNKSIZE, m_remainingBytes))"... weird.
-
-    if (m_remainingBytes < CHUNKSIZE)
-    {
-        buffer.resize(m_remainingBytes);
-    }
-    else
-    {
-        buffer.resize(CHUNKSIZE);
-    }
+    QByteArray buffer(std::min(static_cast<qint64>(CHUNKSIZE), m_remainingBytes), Qt::Uninitialized);
 
     m_remainingBytes -= m_file->read(buffer.data(), buffer.size());
     m_clientConnection->write(buffer);
@@ -100,16 +89,7 @@ void Server::slotNewConnection()
             {
                 while (m_remainingBytes > 0 && m_clientConnection->bytesToWrite() <= HIGH_BYTES_THRESHOLD)
                 {
-                    QByteArray buffer;
-
-                    if (m_remainingBytes < CHUNKSIZE)
-                    {
-                        buffer.resize(m_remainingBytes);
-                    }
-                    else
-                    {
-                        buffer.resize(CHUNKSIZE);
-                    }
+                    QByteArray buffer(std::min(static_cast<qint64>(CHUNKSIZE), m_remainingBytes), Qt::Uninitialized);
 
                     m_remainingBytes -= m_file->read(buffer.data(), buffer.size());
                     m_clientConnection->write(buffer);
