@@ -29,6 +29,10 @@ int main(int argc, char *argv[])
     QCommandLineOption fileArgument("f", "The file you want from the server.", "file");
     parser.addOption(fileArgument);
 
+    // The host address.
+    QCommandLineOption dataTypeArgument("d", "The type of data you want to send.", "file or benchmark", "file");
+    parser.addOption(dataTypeArgument);
+
     // Process the parser
     parser.process(a);
 
@@ -65,9 +69,26 @@ int main(int argc, char *argv[])
         }
         else if (modeValue == "server")
         {
-            qDebug() << "Running in server mode.";
-            Server *server = new Server(&a);
-            a.exec();
+            bool allOk = true;
+
+            QString dataType = parser.value(dataTypeArgument).trimmed();
+
+            qDebug() << dataType;
+
+            // TODO: fully implement this to suport file and benchmark mode (currently it's just a stub, it does nothing).
+            if (dataType.isEmpty())
+            {
+                qCritical() << "You need to provide a file to download from the server.";
+                allOk &= false;
+            }
+
+            // Only continue if there are no errors.
+            if (allOk == true)
+            {
+                qDebug() << "Running in server mode.";
+                Server *server = new Server(&a);
+                a.exec();
+            }
         }
     }
     else

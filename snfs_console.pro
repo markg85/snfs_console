@@ -12,8 +12,12 @@ TEMPLATE = app
 
 SOURCES += main.cpp \
     client.cpp \
-    server.cpp
+    server.cpp \
+    filejob.cpp \
+    benchmarkjob.cpp
 
 HEADERS += \
     client.h \
-    server.h
+    server.h \
+    filejob.h \
+    benchmarkjob.h
