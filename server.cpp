@@ -12,9 +12,9 @@
 
 #include "filejob.h"
 
-#define CHUNKSIZE 4096 // 4 KiB
-#define LOW_BYTES_THRESHOLD 1024 * 64 // 64 KiB
-#define HIGH_BYTES_THRESHOLD 1024 * 512 // 512 KiB
+#define CHUNKSIZE 1024 * 16 // 16 KiB
+#define LOW_BYTES_THRESHOLD 1024 * 1024 * 16 // 16 MiB
+#define HIGH_BYTES_THRESHOLD 1024 * 1024 * 128 //  128 MiB
 
 Server::Server(QObject *parent)
     : QObject(parent)
@@ -47,20 +47,31 @@ void Server::processClientRequest(DataType dataType, QString argument)
         FileJob *file = new FileJob();
         file->moveToThread(workerThread);
 
-        m_buffer = new QBuffer(file->buffer());
-        m_buffer->open(QIODevice::ReadOnly);
+        m_buffer = file->buffer();
+
         connect(this, &Server::initDataFeeder, file, &FileJob::init, Qt::QueuedConnection);
         connect(this, &Server::requestMoreData, file, &FileJob::slotRequestMoreData, Qt::QueuedConnection);
         connect(file, &FileJob::moreDataAvailable, this, [&]()
         {
             // If we get this signal, the buffer has been re-arranged with new data and starts from the beginning.
-            m_buffer->seek(0);
+            if (m_buffer == nullptr)
+            {
+                return;
+            }
+
+            m_buffer->open(QIODevice::ReadOnly);
             slotSendDataToClient();
         });
         connect(file, &FileJob::doneStreaming, this, [&]()
         {
-            // If there are bytes left to be read, read them all and send them to the client.
-            m_clientConnection->write(m_buffer->readAll());
+            // We might still have bytes to write. This can easily happen because we request new bytes when the buffer goes
+            // below the low threshold. If that buffer was the last part of the file then the next signal will be the doneStreaming
+            // signal (this slot). Therefore we need to wait in here till all remaining bytes have been written before actually
+            // closing the connection.
+            while (m_clientConnection->bytesToWrite() > 0)
+            {
+                m_clientConnection->waitForBytesWritten();
+            }
 
             // Now proceed with closing down.
             m_clientConnection->disconnectFromHost();
@@ -152,8 +163,9 @@ void Server::slotSendDataToClient()
     else if (m_buffer->pos() < m_buffer->size())
     {
         // We end up here when we've written the data required to fill the threshold and still have buffer room left to send more data.
-        // We simply re-evaluate this function every 50ms with a singleshot timer.
-        QTimer::singleShot(50, this, &Server::slotSendDataToClient);
+        // We simply re-evaluate this function every 5ms with a singleshot timer. Meanwhile some data will have been send to the client
+        // so the next thike we enter this function it can put some more in the write buffer.
+        QTimer::singleShot(5, this, &Server::slotSendDataToClient);
     }
     else
     {

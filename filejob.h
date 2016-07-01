@@ -2,6 +2,8 @@
 #define FILEJOB_H
 
 #include <QObject>
+#include <QMutex>
+#include <QBuffer>
 
 class QFile;
 
@@ -10,7 +12,7 @@ class FileJob : public QObject
     Q_OBJECT
 public:
     explicit FileJob(QObject *parent = 0);
-    QByteArray *buffer();
+    QBuffer *buffer();
 
 signals:
     void doneStreaming();
@@ -22,8 +24,9 @@ public slots:
 
 private:
     QFile *m_file;
-    QByteArray m_buffer;
-    qint64 m_sizeRead;
+    QBuffer m_buffer;
+    QByteArray m_bufferBackend;
+    QMutex m_mutex;
 };
 
 #endif // FILEJOB_H
