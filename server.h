@@ -2,11 +2,13 @@
 #define SERVER_H
 
 #include <QObject>
+#include "filejob.h"
 
 class QTcpServer;
 class QTcpSocket;
 class QFile;
 class QBuffer;
+class QIODevice;
 
 enum DataType
 {
@@ -23,17 +25,15 @@ public:
     void processClientRequest(DataType dataType, QString argument);
 
 signals:
-    void initDataFeeder(QString argument);
-    void requestMoreData();
 
 public slots:
     void slotNewConnection();
-    void slotSendDataToClient();
+    void slotBytesWritten(qint64 bytes);
 
 private:
     QTcpServer *m_tcpServer;
     QTcpSocket *m_clientConnection; // Just a 1-1 connection for the moment..
-    QBuffer *m_buffer;
+    FileJob *m_sourceDevice;
 };
 
 #endif // SERVER_H

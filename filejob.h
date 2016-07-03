@@ -1,32 +1,21 @@
 #ifndef FILEJOB_H
 #define FILEJOB_H
 
-#include <QObject>
-#include <QMutex>
-#include <QBuffer>
+#include <QFile>
 
-class QFile;
-
-class FileJob : public QObject
+class FileJob : public QFile
 {
     Q_OBJECT
 public:
-    explicit FileJob(QObject *parent = 0);
-    QBuffer *buffer();
+    explicit FileJob(QString fileUri, QObject *parent = 0);
+    QByteArray read(qint64 maxlen);
 
 signals:
-    void doneStreaming();
-    void moreDataAvailable();
+    void deviceAtEnd();
 
 public slots:
-    void init(QString file);
-    void slotRequestMoreData();
 
 private:
-    QFile *m_file;
-    QBuffer m_buffer;
-    QByteArray m_bufferBackend;
-    QMutex m_mutex;
 };
 
 #endif // FILEJOB_H

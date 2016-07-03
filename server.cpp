@@ -12,14 +12,13 @@
 
 #include "filejob.h"
 
-#define CHUNKSIZE 1024 * 16 // 16 KiB
-#define LOW_BYTES_THRESHOLD 1024 * 1024 * 16 // 16 MiB
-#define HIGH_BYTES_THRESHOLD 1024 * 1024 * 128 //  128 MiB
+#define CHUNKSIZE 1024 * 4                  // 4    KiB
+#define LOW_BYTES_THRESHOLD 1024 * 4        // 4    KiB
+#define HIGH_BYTES_THRESHOLD 1024 * 256     // 256  KiB
 
 Server::Server(QObject *parent)
     : QObject(parent)
     , m_tcpServer(new QTcpServer(this))
-    , m_buffer(nullptr)
 //    , m_dataType(DataType::None)
 {
     // Connect to signals from the server.
@@ -43,26 +42,10 @@ void Server::processClientRequest(DataType dataType, QString argument)
     if (dataType == DataType::File)
     {
         qDebug() << "Sending file to the client.";
-        QThread *workerThread = new QThread(this);
-        FileJob *file = new FileJob();
-        file->moveToThread(workerThread);
+        FileJob *file = new FileJob(argument, this);
+        m_sourceDevice = file;
 
-        m_buffer = file->buffer();
-
-        connect(this, &Server::initDataFeeder, file, &FileJob::init, Qt::QueuedConnection);
-        connect(this, &Server::requestMoreData, file, &FileJob::slotRequestMoreData, Qt::QueuedConnection);
-        connect(file, &FileJob::moreDataAvailable, this, [&]()
-        {
-            // If we get this signal, the buffer has been re-arranged with new data and starts from the beginning.
-            if (m_buffer == nullptr)
-            {
-                return;
-            }
-
-            m_buffer->open(QIODevice::ReadOnly);
-            slotSendDataToClient();
-        });
-        connect(file, &FileJob::doneStreaming, this, [&]()
+        connect(file, &FileJob::deviceAtEnd, this, [&]()
         {
             // We might still have bytes to write. This can easily happen because we request new bytes when the buffer goes
             // below the low threshold. If that buffer was the last part of the file then the next signal will be the doneStreaming
@@ -75,18 +58,10 @@ void Server::processClientRequest(DataType dataType, QString argument)
 
             // Now proceed with closing down.
             m_clientConnection->disconnectFromHost();
-            m_buffer = nullptr;
-            workerThread->deleteLater();
         });
 
-        // Start the worker thread.
-        workerThread->start();
-
-        // initialize emit... Has to be done this way since QFile is constructed in the filejob. It cannot be initialized in the constructor because the object then lives on the wrong thread...
-        emit initDataFeeder(argument);
-
-        // this is the initial emit. It triggers the start of the transfer flow.
-        emit requestMoreData();
+        // Send the initial data. This starts the flow to write data to the socket.
+        slotBytesWritten(0);
     }
     else if (dataType == DataType::Benchmark)
     {
@@ -126,49 +101,22 @@ void Server::slotNewConnection()
 
             processClientRequest(DataType::File, fileRequest);
         });
+
+        connect(m_clientConnection, &QTcpSocket::bytesWritten, this, &Server::slotBytesWritten);
     }
 }
 
-void Server::slotSendDataToClient()
+void Server::slotBytesWritten(qint64)
 {
-    // This could be a null pointer in the event that data was read here and a singleshot timer was fired to read more data.
-    // However, for small files you could also have received the doneStreaming() signal which internally sends all remaining data (here, in the handler)
-    // and then cleans the Job object and the m_buffer member.
-    if (m_buffer == nullptr)
-    {
-        return;
-    }
-
     qint64 bytesToWrite = m_clientConnection->bytesToWrite();
 
     if (bytesToWrite <= LOW_BYTES_THRESHOLD)
     {
-        while (m_buffer->pos() < m_buffer->size() && bytesToWrite <= HIGH_BYTES_THRESHOLD)
+        while (m_sourceDevice->pos() < m_sourceDevice->size() && bytesToWrite <= HIGH_BYTES_THRESHOLD)
         {
-            QByteArray buffer(std::min(static_cast<qint64>(CHUNKSIZE), m_buffer->size() - m_buffer->pos()), Qt::Uninitialized);
-            m_buffer->read(buffer.data(), buffer.size());
-            m_clientConnection->write(buffer);
+            qint64 bytesToRead = std::min(static_cast<qint64>(CHUNKSIZE), m_sourceDevice->size() - m_sourceDevice->pos());
+            m_clientConnection->write(m_sourceDevice->read(bytesToRead));
             bytesToWrite = m_clientConnection->bytesToWrite();
         }
-    }
-
-    if (m_buffer->size() - m_buffer->pos() < LOW_BYTES_THRESHOLD)
-    {
-        // Read all remaining data and send it to the client.
-        m_clientConnection->write(m_buffer->readAll());
-
-        // Now request more data.
-        emit requestMoreData();
-    }
-    else if (m_buffer->pos() < m_buffer->size())
-    {
-        // We end up here when we've written the data required to fill the threshold and still have buffer room left to send more data.
-        // We simply re-evaluate this function every 5ms with a singleshot timer. Meanwhile some data will have been send to the client
-        // so the next thike we enter this function it can put some more in the write buffer.
-        QTimer::singleShot(5, this, &Server::slotSendDataToClient);
-    }
-    else
-    {
-        qCritical() << "This shouldn't happen...";
     }
 }
